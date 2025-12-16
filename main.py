@@ -5,8 +5,9 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 
+from call_function import available_functions
 from prompts import system_prompt
-from functions.get_files_info import schema_get_files_info
+
 
 
 def main():
@@ -28,9 +29,6 @@ def main():
     generate_content(client, messages, args.verbose)
 
 def generate_content(client, messages, verbose):
-    available_functions = types.Tool(
-        function_declarations=[schema_get_files_info],
-    )
      
     response = client.models.generate_content(
         model="gemini-2.5-flash",
@@ -40,20 +38,19 @@ def generate_content(client, messages, verbose):
     )
     )
 
-    function_call = response.function_calls
-
     if not response.usage_metadata:
         raise RuntimeError("No usage metadata available for this response.")
-    
-    for function_call_part in function_call:
-        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
 
     if verbose:
         print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}\nResponse tokens: {response.usage_metadata.candidates_token_count}")
-    print("Response:")
-    print(response.text)
 
- 
+    if not response.function_calls:
+        print("Response:")
+        print(response.text)
+        return
+    
+    for function_call_part in response.function_calls:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
 
 
 if __name__ == "__main__":
