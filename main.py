@@ -1,46 +1,60 @@
 import os
-import sys
+import argparse
+
+from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from dotenv import load_dotenv
+
+from prompts import system_prompt
+from functions.get_files_info import schema_get_files_info
+
 
 def main():
+    parser = argparse.ArgumentParser(description="AI coding agent")
+    parser.add_argument("user_prompt", type=str, help="Prompt for Gemini")
+    parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+    args = parser.parse_args()
+
     load_dotenv()
-
-    verbose = "--verbose" in sys.argv
-    args = []
-    for arg in sys.argv[1:]:
-        if not arg.startswith("--"):
-            args.append(arg)
-    
-    if not args:
-        print("error: no prompt provided\nusage: uv run main.py 'your prompt here' [--verbose]")
-        sys.exit(1)
-
     api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        raise RuntimeError("GEMINI_API_KEY environment variable not set")
+
     client = genai.Client(api_key=api_key)
+    messages = [types.Content(role="user", parts=[types.Part(text=args.user_prompt)])]
+    if args.verbose:
+        print(f"User prompt: {args.user_prompt}\n")
 
-    user_prompt = "".join(sys.argv[1:])
-
-    if verbose:
-        print(f"User prompt: {user_prompt}\n")
-
-    messages = [
-        types.Content(role="user", parts=[types.Part(text=user_prompt)]),
-    ]
-
-    generate_content(client, messages, verbose)
+    generate_content(client, messages, args.verbose)
 
 def generate_content(client, messages, verbose):
-    response = client.models.generate_content(
-        model = "gemini-2.0-flash-001",
-        contents = messages,
+    available_functions = types.Tool(
+        function_declarations=[schema_get_files_info],
     )
+     
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=messages,
+        config=types.GenerateContentConfig(
+            tools=[available_functions], system_instruction=system_prompt
+    )
+    )
+
+    function_call = response.function_calls
+
+    if not response.usage_metadata:
+        raise RuntimeError("No usage metadata available for this response.")
+    
+    for function_call_part in function_call:
+        print(f"Calling function: {function_call_part.name}({function_call_part.args})")
+
     if verbose:
-        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
-        print("Response tokens:", response.usage_metadata.candidates_token_count)
+        print(f"Prompt tokens: {response.usage_metadata.prompt_token_count}\nResponse tokens: {response.usage_metadata.candidates_token_count}")
     print("Response:")
     print(response.text)
+
+ 
+
 
 if __name__ == "__main__":
     main()
